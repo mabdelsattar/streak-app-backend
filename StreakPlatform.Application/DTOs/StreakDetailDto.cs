@@ -10,4 +10,9 @@ public record StreakDetailDto(
     Guid CreatedBy,
     int MyCurrentCount,
     bool MyCheckedInToday,
+    int MyPointsBalance,
+    ProtectionDto? MyProtection,
+    bool CanRestoreToday,
+    int RestoreCost,
+    bool RequiresProof,
     IReadOnlyList<ParticipantStatusDto> Participants);

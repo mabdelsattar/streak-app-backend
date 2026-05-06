@@ -9,4 +9,6 @@ public class CreateStreakRequest
 
     [StringLength(500)]
     public string? Description { get; set; }
+
+    public bool RequiresProof { get; set; }
 }

@@ -4,12 +4,18 @@ public static class StreakCountCalculator
 {
     /// <summary>
     /// Computes the current consecutive-day count ending today or yesterday.
-    /// Yesterday is allowed so a streak isn't shown as broken until midnight passes
-    /// and the user has the chance to catch up. (BRD §10.3)
+    /// Yesterday is allowed so a streak isn't shown as broken until midnight passes.
     /// </summary>
-    public static int Compute(IEnumerable<DateOnly> dates, DateOnly today)
+    public static int Compute(IEnumerable<DateOnly> dates, DateOnly today) =>
+        Compute(dates, Array.Empty<DateOnly>(), today);
+
+    /// <summary>
+    /// Protection-aware overload: a paid-for "protected day" counts toward chain continuity.
+    /// </summary>
+    public static int Compute(IEnumerable<DateOnly> checkIns, IEnumerable<DateOnly> protectedDays, DateOnly today)
     {
-        var set = new HashSet<DateOnly>(dates);
+        var set = new HashSet<DateOnly>(checkIns);
+        set.UnionWith(protectedDays);
         if (set.Count == 0) return 0;
 
         DateOnly cursor;

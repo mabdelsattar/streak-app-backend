@@ -45,4 +45,22 @@ public class CheckInRepository : ICheckInRepository
             .Where(c => c.StreakId == streakId && c.Date == date)
             .Select(c => c.UserId)
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<(CheckIn CheckIn, string DisplayName)>> GetFeedAsync(
+        Guid streakId, int take, int skip, CancellationToken ct = default)
+    {
+        var rows = await _db.CheckIns
+            .Where(c => c.StreakId == streakId && (c.Note != null || c.MediaUrl != null))
+            .OrderByDescending(c => c.CreatedAt)
+            .Skip(skip)
+            .Take(take)
+            .Select(c => new
+            {
+                CheckIn = c,
+                DisplayName = c.User.DisplayName ?? c.User.Email
+            })
+            .ToListAsync(ct);
+
+        return rows.Select(r => (r.CheckIn, r.DisplayName)).ToList();
+    }
 }

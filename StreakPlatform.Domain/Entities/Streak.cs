@@ -7,6 +7,7 @@ public class Streak
     public string? Description { get; set; }
     public Guid CreatedBy { get; set; }
     public string InviteCode { get; set; } = null!;
+    public bool RequiresProof { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public User Creator { get; set; } = null!;

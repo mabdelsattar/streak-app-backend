@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Options;
 using StreakPlatform.Application.Common;
 using StreakPlatform.Application.DTOs;
 using StreakPlatform.Application.Interfaces;
@@ -11,26 +12,32 @@ public class StreakService : IStreakService
     private readonly IStreakRepository _streaks;
     private readonly IParticipantRepository _participants;
     private readonly ICheckInRepository _checkIns;
+    private readonly IProtectionRepository _protections;
     private readonly IUnitOfWork _uow;
     private readonly InviteCodeGenerator _codes;
     private readonly InviteUrlBuilder _urlBuilder;
+    private readonly AppOptions _options;
 
     public StreakService(
         IUserRepository users,
         IStreakRepository streaks,
         IParticipantRepository participants,
         ICheckInRepository checkIns,
+        IProtectionRepository protections,
         IUnitOfWork uow,
         InviteCodeGenerator codes,
-        InviteUrlBuilder urlBuilder)
+        InviteUrlBuilder urlBuilder,
+        IOptions<AppOptions> options)
     {
         _users = users;
         _streaks = streaks;
         _participants = participants;
         _checkIns = checkIns;
+        _protections = protections;
         _uow = uow;
         _codes = codes;
         _urlBuilder = urlBuilder;
+        _options = options.Value;
     }
 
     public async Task<StreakDetailDto> CreateAsync(string firebaseUid, CreateStreakRequest req, CancellationToken ct = default)
@@ -47,11 +54,11 @@ public class StreakService : IStreakService
             Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
             CreatedBy = user.Id,
             InviteCode = await _codes.GenerateUniqueAsync(ct),
+            RequiresProof = req.RequiresProof,
             CreatedAt = now
         };
         await _streaks.AddAsync(streak, ct);
 
-        // Creator auto-joins as participant.
         await _participants.AddAsync(new Participant
         {
             Id = Guid.NewGuid(),
@@ -61,7 +68,6 @@ public class StreakService : IStreakService
         }, ct);
 
         await _uow.SaveChangesAsync(ct);
-
         return await BuildDetailAsync(user.Id, streak.Id, ct);
     }
 
@@ -77,13 +83,18 @@ public class StreakService : IStreakService
         foreach (var s in streaks)
         {
             var dates = await _checkIns.GetUserDatesAsync(user.Id, s.Id, ct);
+            var prots = await _protections.GetUsedDatesAsync(user.Id, s.Id, ct);
+            var pending = await _protections.GetPendingAsync(user.Id, s.Id, ct);
+
             summaries.Add(new StreakSummaryDto(
                 s.Id,
                 s.Name,
                 s.Description,
-                StreakCountCalculator.Compute(dates, today),
+                StreakCountCalculator.Compute(dates, prots, today),
                 StreakCountCalculator.CheckedInToday(dates, today),
-                s.Participants.Count));
+                s.Participants.Count,
+                pending is not null,
+                s.RequiresProof));
         }
         return summaries;
     }
@@ -128,11 +139,9 @@ public class StreakService : IStreakService
         return new InviteDto(streak.Id, streak.InviteCode, _urlBuilder.Build(streak.InviteCode));
     }
 
-    private async Task<User> GetUserOrThrow(string firebaseUid, CancellationToken ct)
-    {
-        return await _users.GetByFirebaseUidAsync(firebaseUid, ct)
+    private async Task<User> GetUserOrThrow(string firebaseUid, CancellationToken ct) =>
+        await _users.GetByFirebaseUidAsync(firebaseUid, ct)
             ?? throw new NotFoundException("User not initialized.");
-    }
 
     private async Task EnsureParticipantOrThrow(Guid userId, Guid streakId, CancellationToken ct)
     {
@@ -148,22 +157,38 @@ public class StreakService : IStreakService
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var userIds = streak.Participants.Select(p => p.UserId).ToList();
         var datesByUser = await _checkIns.GetDatesByUsersAsync(userIds, streak.Id, ct);
+        var protectedByUser = await _protections.GetUsedDatesByUsersAsync(userIds, streak.Id, ct);
 
         var participants = streak.Participants
             .OrderBy(p => p.JoinedAt)
             .Select(p =>
             {
                 var dates = datesByUser.TryGetValue(p.UserId, out var d) ? d : Array.Empty<DateOnly>();
+                var prots = protectedByUser.TryGetValue(p.UserId, out var pp) ? pp : Array.Empty<DateOnly>();
                 return new ParticipantStatusDto(
                     p.UserId,
                     p.User.DisplayName ?? p.User.Email,
-                    StreakCountCalculator.Compute(dates, today),
+                    StreakCountCalculator.Compute(dates, prots, today),
                     StreakCountCalculator.CheckedInToday(dates, today),
                     p.JoinedAt);
             })
             .ToList();
 
         var me = participants.First(x => x.UserId == currentUserId);
+
+        var myDates = datesByUser.TryGetValue(currentUserId, out var md) ? md : Array.Empty<DateOnly>();
+        var myProts = protectedByUser.TryGetValue(currentUserId, out var mp) ? mp : Array.Empty<DateOnly>();
+        var combined = new HashSet<DateOnly>(myDates);
+        combined.UnionWith(myProts);
+        var canRestore = !combined.Contains(today.AddDays(-1)) && combined.Contains(today.AddDays(-2));
+
+        var pending = await _protections.GetPendingAsync(currentUserId, streak.Id, ct);
+        var pendingDto = pending is null
+            ? null
+            : new ProtectionDto(pending.Id, pending.StreakId, pending.Status.ToString(),
+                pending.PointsCost, pending.ScheduledAt, pending.AppliedToDate);
+
+        var me2 = await _users.GetByIdAsync(currentUserId, ct);
 
         return new StreakDetailDto(
             streak.Id,
@@ -175,6 +200,11 @@ public class StreakService : IStreakService
             streak.CreatedBy,
             me.CurrentCount,
             me.CheckedInToday,
+            me2?.PointsBalance ?? 0,
+            pendingDto,
+            canRestore,
+            _options.ProtectionCost,
+            streak.RequiresProof,
             participants);
     }
 }

@@ -6,4 +6,6 @@ public record StreakSummaryDto(
     string? Description,
     int CurrentCount,
     bool CheckedInToday,
-    int ParticipantCount);
+    int ParticipantCount,
+    bool HasActiveProtection,
+    bool RequiresProof);

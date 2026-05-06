@@ -4,3 +4,5 @@ obj/
 *.db
 *.db-journal
 firebase-service-account.json
+StreakPlatform.Api/Media/
+StreakPlatform.Api/Logs/
