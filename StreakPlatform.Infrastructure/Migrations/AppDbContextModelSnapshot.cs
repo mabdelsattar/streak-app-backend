@@ -64,7 +64,7 @@ namespace StreakPlatform.Infrastructure.Migrations
                     b.HasIndex("UserId", "StreakId", "Date")
                         .IsUnique();
 
-                    b.ToTable("CheckIns");
+                    b.ToTable("CheckIns", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.CheckInReaction", b =>
@@ -97,7 +97,7 @@ namespace StreakPlatform.Infrastructure.Migrations
                     b.HasIndex("CheckInId", "ReactorUserId")
                         .IsUnique();
 
-                    b.ToTable("CheckInReactions");
+                    b.ToTable("CheckInReactions", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.Participant", b =>
@@ -122,7 +122,7 @@ namespace StreakPlatform.Infrastructure.Migrations
                     b.HasIndex("UserId", "StreakId")
                         .IsUnique();
 
-                    b.ToTable("Participants");
+                    b.ToTable("Participants", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.PointsTransaction", b =>
@@ -153,7 +153,7 @@ namespace StreakPlatform.Infrastructure.Migrations
 
                     b.HasIndex("UserId", "CreatedAt");
 
-                    b.ToTable("PointsTransactions");
+                    b.ToTable("PointsTransactions", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.Streak", b =>
@@ -198,7 +198,7 @@ namespace StreakPlatform.Infrastructure.Migrations
                     b.HasIndex("InviteCode")
                         .IsUnique();
 
-                    b.ToTable("Streaks");
+                    b.ToTable("Streaks", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.StreakProtection", b =>
@@ -242,7 +242,7 @@ namespace StreakPlatform.Infrastructure.Migrations
                         .HasDatabaseName("IX_StreakProtections_OnePendingPerUserStreak")
                         .HasFilter("[Status] = 0");
 
-                    b.ToTable("StreakProtections");
+                    b.ToTable("StreakProtections", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.User", b =>
@@ -284,7 +284,7 @@ namespace StreakPlatform.Infrastructure.Migrations
                     b.HasIndex("FirebaseUid")
                         .IsUnique();
 
-                    b.ToTable("Users");
+                    b.ToTable("Users", (string)null);
                 });
 
             modelBuilder.Entity("StreakPlatform.Domain.Entities.CheckIn", b =>
