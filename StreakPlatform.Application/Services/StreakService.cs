@@ -47,6 +47,8 @@ public class StreakService : IStreakService
 
         var user = await GetUserOrThrow(firebaseUid, ct);
         var now = DateTime.UtcNow;
+        var label = string.IsNullOrWhiteSpace(req.CheckInButtonLabel) ? null : req.CheckInButtonLabel.Trim();
+
         var streak = new Streak
         {
             Id = Guid.NewGuid(),
@@ -54,7 +56,8 @@ public class StreakService : IStreakService
             Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
             CreatedBy = user.Id,
             InviteCode = await _codes.GenerateUniqueAsync(ct),
-            RequiresProof = req.RequiresProof,
+            CheckInType = req.CheckInType,
+            CheckInButtonLabel = req.CheckInType == CheckInType.Action ? (label ?? "Done") : label,
             CreatedAt = now
         };
         await _streaks.AddAsync(streak, ct);
@@ -94,7 +97,8 @@ public class StreakService : IStreakService
                 StreakCountCalculator.CheckedInToday(dates, today),
                 s.Participants.Count,
                 pending is not null,
-                s.RequiresProof));
+                s.CheckInType.ToString(),
+                s.CheckInButtonLabel));
         }
         return summaries;
     }
@@ -204,7 +208,8 @@ public class StreakService : IStreakService
             pendingDto,
             canRestore,
             _options.ProtectionCost,
-            streak.RequiresProof,
+            streak.CheckInType.ToString(),
+            streak.CheckInButtonLabel,
             participants);
     }
 }

@@ -13,6 +13,9 @@ public class CheckInRepository : ICheckInRepository
     public Task<bool> ExistsAsync(Guid userId, Guid streakId, DateOnly date, CancellationToken ct = default) =>
         _db.CheckIns.AnyAsync(c => c.UserId == userId && c.StreakId == streakId && c.Date == date, ct);
 
+    public Task<CheckIn?> GetByIdAsync(Guid id, CancellationToken ct = default) =>
+        _db.CheckIns.FirstOrDefaultAsync(c => c.Id == id, ct);
+
     public async Task AddAsync(CheckIn checkIn, CancellationToken ct = default) =>
         await _db.CheckIns.AddAsync(checkIn, ct);
 

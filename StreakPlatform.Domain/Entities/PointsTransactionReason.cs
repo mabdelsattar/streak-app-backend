@@ -6,5 +6,8 @@ public enum PointsTransactionReason
     CheckInReward = 1,
     ProtectionPurchase = 2,
     Restore = 3,
-    Refund = 4
+    Refund = 4,
+    ReactionGiven = 5,
+    ReactionReceivedLike = 6,
+    ReactionReceivedDislike = 7
 }

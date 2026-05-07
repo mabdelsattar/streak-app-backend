@@ -12,4 +12,7 @@ public class CheckInRequest
 
     [StringLength(100)]
     public string? MediaContentType { get; set; }
+
+    [Range(0, 3600)]
+    public int? MediaDurationSeconds { get; set; }
 }

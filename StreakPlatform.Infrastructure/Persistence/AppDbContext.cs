@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<CheckIn> CheckIns => Set<CheckIn>();
     public DbSet<StreakProtection> StreakProtections => Set<StreakProtection>();
     public DbSet<PointsTransaction> PointsTransactions => Set<PointsTransaction>();
+    public DbSet<CheckInReaction> CheckInReactions => Set<CheckInReaction>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -33,7 +34,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.Name).IsRequired().HasMaxLength(100);
             e.Property(x => x.Description).HasMaxLength(500);
             e.Property(x => x.InviteCode).IsRequired().HasMaxLength(16);
-            e.Property(x => x.RequiresProof).HasDefaultValue(false);
+            e.Property(x => x.CheckInType).HasDefaultValue(CheckInType.Action);
+            e.Property(x => x.CheckInButtonLabel).HasMaxLength(40);
             e.HasIndex(x => x.InviteCode).IsUnique();
             e.HasOne(x => x.Creator)
                 .WithMany(u => u.CreatedStreaks)
@@ -100,6 +102,21 @@ public class AppDbContext : DbContext
                 .WithMany(u => u.PointsTransactions)
                 .HasForeignKey(x => x.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        b.Entity<CheckInReaction>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.CheckInId, x.ReactorUserId }).IsUnique();
+            e.HasIndex(x => x.CheckInId);
+            e.HasOne(x => x.CheckIn)
+                .WithMany(c => c.Reactions)
+                .HasForeignKey(x => x.CheckInId)
+                .OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Reactor)
+                .WithMany(u => u.Reactions)
+                .HasForeignKey(x => x.ReactorUserId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

@@ -13,6 +13,7 @@
     </PackageReference>
     <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="8.0.0" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="Google.Cloud.Storage.V1" Version="4.10.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\StreakPlatform.Application\StreakPlatform.Application.csproj" />

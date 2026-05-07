@@ -63,7 +63,14 @@ try
     builder.Services.AddInfrastructure(builder.Configuration);
     builder.Services.AddHttpContextAccessor();
     builder.Services.AddScoped<ICurrentUserAccessor, CurrentUserAccessor>();
-    builder.Services.AddControllers();
+    builder.Services.AddControllers()
+        .AddJsonOptions(o =>
+        {
+            // Accept and emit enum names as strings (e.g. "Action", "Like") so the
+            // frontend doesn't have to know integer values.
+            o.JsonSerializerOptions.Converters.Add(
+                new System.Text.Json.Serialization.JsonStringEnumConverter(allowIntegerValues: true));
+        });
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
 

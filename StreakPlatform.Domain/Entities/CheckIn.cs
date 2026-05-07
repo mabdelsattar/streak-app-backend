@@ -10,7 +10,9 @@ public class CheckIn
     public string? Note { get; set; }
     public string? MediaUrl { get; set; }
     public string? MediaContentType { get; set; }
+    public int? MediaDurationSeconds { get; set; }
 
     public User User { get; set; } = null!;
     public Streak Streak { get; set; } = null!;
+    public ICollection<CheckInReaction> Reactions { get; set; } = new List<CheckInReaction>();
 }

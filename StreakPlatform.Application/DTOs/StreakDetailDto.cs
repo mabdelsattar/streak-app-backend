@@ -14,5 +14,6 @@ public record StreakDetailDto(
     ProtectionDto? MyProtection,
     bool CanRestoreToday,
     int RestoreCost,
-    bool RequiresProof,
+    string CheckInType,
+    string? CheckInButtonLabel,
     IReadOnlyList<ParticipantStatusDto> Participants);

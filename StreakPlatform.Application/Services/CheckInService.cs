@@ -13,6 +13,7 @@ public class CheckInService : ICheckInService
     private readonly IParticipantRepository _participants;
     private readonly ICheckInRepository _checkIns;
     private readonly IProtectionRepository _protections;
+    private readonly IReactionRepository _reactions;
     private readonly IPointsService _points;
     private readonly IUnitOfWork _uow;
     private readonly AppOptions _options;
@@ -23,6 +24,7 @@ public class CheckInService : ICheckInService
         IParticipantRepository participants,
         ICheckInRepository checkIns,
         IProtectionRepository protections,
+        IReactionRepository reactions,
         IPointsService points,
         IUnitOfWork uow,
         IOptions<AppOptions> options)
@@ -32,6 +34,7 @@ public class CheckInService : ICheckInService
         _participants = participants;
         _checkIns = checkIns;
         _protections = protections;
+        _reactions = reactions;
         _points = points;
         _uow = uow;
         _options = options.Value;
@@ -51,9 +54,9 @@ public class CheckInService : ICheckInService
         var note = string.IsNullOrWhiteSpace(req.Note) ? null : req.Note.Trim();
         var mediaUrl = string.IsNullOrWhiteSpace(req.MediaUrl) ? null : req.MediaUrl.Trim();
         var mediaContentType = string.IsNullOrWhiteSpace(req.MediaContentType) ? null : req.MediaContentType.Trim();
+        var duration = req.MediaDurationSeconds;
 
-        if (streak.RequiresProof && note is null && mediaUrl is null)
-            throw new ValidationException("This streak requires a note or photo as proof.");
+        ValidateForType(streak.CheckInType, note, mediaUrl, mediaContentType);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var yesterday = today.AddDays(-1);
@@ -96,7 +99,8 @@ public class CheckInService : ICheckInService
             CreatedAt = DateTime.UtcNow,
             Note = note,
             MediaUrl = mediaUrl,
-            MediaContentType = mediaContentType
+            MediaContentType = mediaContentType,
+            MediaDurationSeconds = duration
         }, ct);
 
         var newBalance = await _points.AwardAsync(user.Id, _options.PointsPerCheckIn,
@@ -177,14 +181,56 @@ public class CheckInService : ICheckInService
             throw new ForbiddenException("You are not a participant of this streak.");
 
         var rows = await _checkIns.GetFeedAsync(streakId, Math.Clamp(take, 1, 100), Math.Max(skip, 0), ct);
-        return rows.Select(r => new CheckInFeedItemDto(
-            r.CheckIn.Id,
-            r.CheckIn.UserId,
-            r.DisplayName,
-            r.CheckIn.Date,
-            r.CheckIn.CreatedAt,
-            r.CheckIn.Note,
-            r.CheckIn.MediaUrl,
-            r.CheckIn.MediaContentType)).ToList();
+        if (rows.Count == 0) return Array.Empty<CheckInFeedItemDto>();
+
+        var ids = rows.Select(r => r.CheckIn.Id).ToList();
+        var counts = await _reactions.CountByCheckInAsync(ids, ct);
+        var mine = await _reactions.GetMyReactionsByCheckInAsync(ids, user.Id, ct);
+
+        return rows.Select(r =>
+        {
+            var (likes, dislikes) = counts.TryGetValue(r.CheckIn.Id, out var c) ? c : (0, 0);
+            string? myReaction = mine.TryGetValue(r.CheckIn.Id, out var t) ? t.ToString() : null;
+            return new CheckInFeedItemDto(
+                r.CheckIn.Id,
+                r.CheckIn.UserId,
+                r.DisplayName,
+                r.CheckIn.Date,
+                r.CheckIn.CreatedAt,
+                r.CheckIn.Note,
+                r.CheckIn.MediaUrl,
+                r.CheckIn.MediaContentType,
+                r.CheckIn.MediaDurationSeconds,
+                likes,
+                dislikes,
+                myReaction,
+                r.CheckIn.UserId == user.Id);
+        }).ToList();
+    }
+
+    private static void ValidateForType(CheckInType type, string? note, string? mediaUrl, string? mediaContentType)
+    {
+        switch (type)
+        {
+            case CheckInType.Action:
+                // Anything goes — extra fields just stored if present.
+                return;
+            case CheckInType.Text:
+                if (string.IsNullOrWhiteSpace(note))
+                    throw new ValidationException("This streak requires a text note.");
+                return;
+            case CheckInType.Image:
+                if (string.IsNullOrWhiteSpace(mediaUrl) || mediaContentType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) != true)
+                    throw new ValidationException("This streak requires an image.");
+                return;
+            case CheckInType.Voice:
+                if (string.IsNullOrWhiteSpace(mediaUrl) || mediaContentType?.StartsWith("audio/", StringComparison.OrdinalIgnoreCase) != true)
+                    throw new ValidationException("This streak requires a voice recording.");
+                return;
+            case CheckInType.Video:
+                if (string.IsNullOrWhiteSpace(mediaUrl) || mediaContentType?.StartsWith("video/", StringComparison.OrdinalIgnoreCase) != true)
+                    throw new ValidationException("This streak requires a video recording.");
+                return;
+        }
     }
 }

@@ -15,4 +15,5 @@ public class User
     public ICollection<CheckIn> CheckIns { get; set; } = new List<CheckIn>();
     public ICollection<StreakProtection> Protections { get; set; } = new List<StreakProtection>();
     public ICollection<PointsTransaction> PointsTransactions { get; set; } = new List<PointsTransaction>();
+    public ICollection<CheckInReaction> Reactions { get; set; } = new List<CheckInReaction>();
 }

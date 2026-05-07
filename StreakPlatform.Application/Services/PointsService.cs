@@ -3,7 +3,6 @@ using StreakPlatform.Application.DTOs;
 using StreakPlatform.Application.Interfaces;
 using StreakPlatform.Domain.Entities;
 
-
 namespace StreakPlatform.Application.Services;
 
 public class PointsService : IPointsService
@@ -37,6 +36,12 @@ public class PointsService : IPointsService
             t.CreatedAt)).ToList();
     }
 
+    /// <summary>
+    /// Adjusts the user's balance and writes a PointsTransaction.
+    /// Balance is CLAMPED at 0 — if the requested delta would push it negative,
+    /// the recorded transaction reflects the actual delta applied (smaller magnitude),
+    /// not the requested one. Caller still gets the new balance.
+    /// </summary>
     public async Task<int> AwardAsync(Guid userId, int delta, PointsTransactionReason reason,
         Guid? relatedStreakId = null, Guid? relatedProtectionId = null,
         CancellationToken ct = default)
@@ -44,23 +49,26 @@ public class PointsService : IPointsService
         var user = await _users.GetByIdAsync(userId, ct)
             ?? throw new NotFoundException("User not found.");
 
-        var newBalance = user.PointsBalance + delta;
-        if (newBalance < 0)
-            throw new ConflictException("Insufficient points.");
+        var requested = user.PointsBalance + delta;
+        var newBalance = requested < 0 ? 0 : requested;
+        var actualDelta = newBalance - user.PointsBalance;
 
         user.PointsBalance = newBalance;
         user.UpdatedAt = DateTime.UtcNow;
 
-        await _txs.AddAsync(new PointsTransaction
+        if (actualDelta != 0)
         {
-            Id = Guid.NewGuid(),
-            UserId = userId,
-            Delta = delta,
-            Reason = reason,
-            RelatedStreakId = relatedStreakId,
-            RelatedProtectionId = relatedProtectionId,
-            CreatedAt = DateTime.UtcNow
-        }, ct);
+            await _txs.AddAsync(new PointsTransaction
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                Delta = actualDelta,
+                Reason = reason,
+                RelatedStreakId = relatedStreakId,
+                RelatedProtectionId = relatedProtectionId,
+                CreatedAt = DateTime.UtcNow
+            }, ct);
+        }
 
         return newBalance;
     }

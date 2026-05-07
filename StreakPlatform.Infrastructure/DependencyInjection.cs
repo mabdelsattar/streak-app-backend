@@ -22,9 +22,6 @@ public static class DependencyInjection
         services.AddDbContext<AppDbContext>(o =>
         {
             o.UseSqlServer(cs);
-            // EF Core logs (commands, parameters, transactions, connection events) flow into the
-            // ASP.NET Core ILoggerFactory automatically via UseLoggerFactory if registered.
-            // We just toggle the verbose/sensitive switches based on appsettings.
             if (enableSensitive) o.EnableSensitiveDataLogging();
             if (enableDetailedErrors) o.EnableDetailedErrors();
         });
@@ -38,14 +35,21 @@ public static class DependencyInjection
         services.AddScoped<ICheckInRepository, CheckInRepository>();
         services.AddScoped<IProtectionRepository, ProtectionRepository>();
         services.AddScoped<IPointsTransactionRepository, PointsTransactionRepository>();
+        services.AddScoped<IReactionRepository, ReactionRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // Helpers
         services.AddScoped<InviteCodeGenerator>();
         services.AddScoped<InviteUrlBuilder>();
 
-        // Storage
-        services.AddSingleton<IMediaStorage, LocalMediaStorage>();
+        // Storage provider switch
+        var provider = config["App:MediaStorage:Provider"]
+                       ?? config["MediaStorage:Provider"]
+                       ?? "Local";
+        if (provider.Equals("Gcs", StringComparison.OrdinalIgnoreCase))
+            services.AddSingleton<IMediaStorage, GcsMediaStorage>();
+        else
+            services.AddSingleton<IMediaStorage, LocalMediaStorage>();
 
         // Services
         services.AddScoped<IUserService, UserService>();
@@ -53,6 +57,7 @@ public static class DependencyInjection
         services.AddScoped<ICheckInService, CheckInService>();
         services.AddScoped<IPointsService, PointsService>();
         services.AddScoped<IStreakProtectionService, StreakProtectionService>();
+        services.AddScoped<IReactionService, ReactionService>();
 
         return services;
     }

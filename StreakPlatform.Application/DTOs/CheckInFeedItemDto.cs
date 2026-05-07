@@ -8,4 +8,9 @@ public record CheckInFeedItemDto(
     DateTime CreatedAt,
     string? Note,
     string? MediaUrl,
-    string? MediaContentType);
+    string? MediaContentType,
+    int? MediaDurationSeconds,
+    int LikeCount,
+    int DislikeCount,
+    string? MyReaction,   // "Like" | "Dislike" | null
+    bool IsMine);

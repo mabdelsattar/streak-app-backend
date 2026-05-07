@@ -28,17 +28,40 @@ public class MediaController : ControllerBase
         _options = options.Value;
     }
 
+    /// <summary>
+    /// Issues an upload ticket. Frontend then uploads directly to <c>uploadUrl</c>
+    /// using <c>uploadMethod</c>. For PUT_BINARY (GCS), publicUrl is known up-front.
+    /// For POST_MULTIPART (local), the server returns the URL after the multipart upload.
+    /// </summary>
+    [HttpPost("upload-ticket")]
+    public async Task<IActionResult> CreateTicket([FromBody] UploadTicketRequest req, CancellationToken ct)
+    {
+        var user = await _users.GetByFirebaseUidAsync(_current.FirebaseUid, ct);
+        if (user is null) return Unauthorized(new { error = "User not initialized." });
+
+        try
+        {
+            var ticket = await _storage.CreateUploadTicketAsync(
+                user.Id, req.Kind, req.ContentType, req.SizeBytes, ct);
+            return Ok(ticket);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>Multipart upload (used by the local provider's ticket flow).</summary>
     [HttpPost("upload")]
-    [RequestSizeLimit(10 * 1024 * 1024)]
-    [RequestFormLimits(MultipartBodyLengthLimit = 10 * 1024 * 1024)]
+    [RequestSizeLimit(60 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 60 * 1024 * 1024)]
     public async Task<IActionResult> Upload([FromForm] IFormFile file, CancellationToken ct)
     {
         if (file is null || file.Length == 0)
             return BadRequest(new { error = "Missing file." });
 
         var user = await _users.GetByFirebaseUidAsync(_current.FirebaseUid, ct);
-        if (user is null)
-            return Unauthorized(new { error = "User not initialized." });
+        if (user is null) return Unauthorized(new { error = "User not initialized." });
 
         try
         {
