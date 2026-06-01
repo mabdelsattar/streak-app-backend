@@ -13,6 +13,7 @@ public class StreakService : IStreakService
     private readonly IParticipantRepository _participants;
     private readonly ICheckInRepository _checkIns;
     private readonly IProtectionRepository _protections;
+    private readonly IPointsService _points;
     private readonly IUnitOfWork _uow;
     private readonly InviteCodeGenerator _codes;
     private readonly InviteUrlBuilder _urlBuilder;
@@ -24,6 +25,7 @@ public class StreakService : IStreakService
         IParticipantRepository participants,
         ICheckInRepository checkIns,
         IProtectionRepository protections,
+        IPointsService points,
         IUnitOfWork uow,
         InviteCodeGenerator codes,
         InviteUrlBuilder urlBuilder,
@@ -34,6 +36,7 @@ public class StreakService : IStreakService
         _participants = participants;
         _checkIns = checkIns;
         _protections = protections;
+        _points = points;
         _uow = uow;
         _codes = codes;
         _urlBuilder = urlBuilder;
@@ -58,6 +61,7 @@ public class StreakService : IStreakService
             InviteCode = await _codes.GenerateUniqueAsync(ct),
             CheckInType = req.CheckInType,
             CheckInButtonLabel = req.CheckInType == CheckInType.Action ? (label ?? "Done") : label,
+            IsPublic = req.IsPublic,
             CreatedAt = now
         };
         await _streaks.AddAsync(streak, ct);
@@ -67,7 +71,8 @@ public class StreakService : IStreakService
             Id = Guid.NewGuid(),
             UserId = user.Id,
             StreakId = streak.Id,
-            JoinedAt = now
+            JoinedAt = now,
+            IsActive = true
         }, ct);
 
         await _uow.SaveChangesAsync(ct);
@@ -87,7 +92,6 @@ public class StreakService : IStreakService
         {
             var dates = await _checkIns.GetUserDatesAsync(user.Id, s.Id, ct);
             var prots = await _protections.GetUsedDatesAsync(user.Id, s.Id, ct);
-            var pending = await _protections.GetPendingAsync(user.Id, s.Id, ct);
 
             summaries.Add(new StreakSummaryDto(
                 s.Id,
@@ -95,10 +99,10 @@ public class StreakService : IStreakService
                 s.Description,
                 StreakCountCalculator.Compute(dates, prots, today),
                 StreakCountCalculator.CheckedInToday(dates, today),
-                s.Participants.Count,
-                pending is not null,
+                s.Participants.Count(p => p.IsActive),
                 s.CheckInType.ToString(),
-                s.CheckInButtonLabel));
+                s.CheckInButtonLabel,
+                s.IsPublic));
         }
         return summaries;
     }
@@ -106,7 +110,7 @@ public class StreakService : IStreakService
     public async Task<StreakDetailDto> GetDetailAsync(string firebaseUid, Guid streakId, CancellationToken ct = default)
     {
         var user = await GetUserOrThrow(firebaseUid, ct);
-        await EnsureParticipantOrThrow(user.Id, streakId, ct);
+        await EnsureActiveParticipantOrThrow(user.Id, streakId, ct);
         return await BuildDetailAsync(user.Id, streakId, ct);
     }
 
@@ -119,16 +123,7 @@ public class StreakService : IStreakService
         var streak = await _streaks.GetByInviteCodeAsync(inviteCode.Trim().ToUpperInvariant(), ct)
             ?? throw new NotFoundException("Invalid invite code.");
 
-        if (await _participants.ExistsAsync(user.Id, streak.Id, ct))
-            throw new ConflictException("You have already joined this streak.");
-
-        await _participants.AddAsync(new Participant
-        {
-            Id = Guid.NewGuid(),
-            UserId = user.Id,
-            StreakId = streak.Id,
-            JoinedAt = DateTime.UtcNow
-        }, ct);
+        await UpsertActiveParticipantAsync(user.Id, streak.Id, ct);
         await _uow.SaveChangesAsync(ct);
 
         return await BuildDetailAsync(user.Id, streak.Id, ct);
@@ -137,19 +132,89 @@ public class StreakService : IStreakService
     public async Task<InviteDto> GetInviteAsync(string firebaseUid, Guid streakId, CancellationToken ct = default)
     {
         var user = await GetUserOrThrow(firebaseUid, ct);
-        await EnsureParticipantOrThrow(user.Id, streakId, ct);
+        await EnsureActiveParticipantOrThrow(user.Id, streakId, ct);
         var streak = await _streaks.GetByIdAsync(streakId, ct)
             ?? throw new NotFoundException("Streak not found.");
         return new InviteDto(streak.Id, streak.InviteCode, _urlBuilder.Build(streak.InviteCode));
+    }
+
+    public async Task<IReadOnlyList<PublicStreakDto>> GetPublicStreaksAsync(
+        string firebaseUid, int take, int skip, string? search, CancellationToken ct = default)
+    {
+        var user = await GetUserOrThrow(firebaseUid, ct);
+        var effectiveTake = take <= 0 ? _options.PublicListDefaultTake : take;
+        var streaks = await _streaks.GetPublicForDiscoveryAsync(user.Id, effectiveTake, skip, search, ct);
+        return streaks.Select(s => new PublicStreakDto(
+            s.Id,
+            s.Name,
+            s.Description,
+            s.Participants.Count(p => p.IsActive),
+            s.CheckInType.ToString(),
+            s.CreatedAt,
+            s.Creator?.DisplayName ?? s.Creator?.Email ?? "—")).ToList();
+    }
+
+    public async Task<StreakDetailDto> JoinPublicAsync(string firebaseUid, Guid streakId, CancellationToken ct = default)
+    {
+        var user = await GetUserOrThrow(firebaseUid, ct);
+
+        var streak = await _streaks.GetByIdAsync(streakId, ct)
+            ?? throw new NotFoundException("Streak not found.");
+
+        if (!streak.IsPublic)
+            throw new ForbiddenException("This streak is private. Use the invite code to join.");
+
+        var cost = _options.PublicStreakJoinCost;
+        if (cost > 0)
+        {
+            if (user.PointsBalance < cost)
+                throw new ConflictException($"insufficient_points: Need {cost} pts to join.");
+            await _points.AwardAsync(user.Id, -cost, PointsTransactionReason.ProtectionPurchase, streakId, null, ct);
+        }
+
+        await UpsertActiveParticipantAsync(user.Id, streak.Id, ct);
+        await _uow.SaveChangesAsync(ct);
+
+        return await BuildDetailAsync(user.Id, streak.Id, ct);
+    }
+
+    /// <summary>
+    /// Activates a Participant row for (user, streak). If one already exists:
+    /// - active → throw ConflictException("already_joined")
+    /// - inactive → reactivate and reset JoinedAt to now (fresh start)
+    /// </summary>
+    private async Task UpsertActiveParticipantAsync(Guid userId, Guid streakId, CancellationToken ct)
+    {
+        var existing = await _participants.GetAsync(userId, streakId, ct);
+        if (existing is not null)
+        {
+            if (existing.IsActive)
+                throw new ConflictException("You have already joined this streak.");
+            existing.IsActive = true;
+            existing.InactiveAt = null;
+            existing.InactiveReason = null;
+            existing.JoinedAt = DateTime.UtcNow;   // fresh start — streak count begins again
+        }
+        else
+        {
+            await _participants.AddAsync(new Participant
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                StreakId = streakId,
+                JoinedAt = DateTime.UtcNow,
+                IsActive = true
+            }, ct);
+        }
     }
 
     private async Task<User> GetUserOrThrow(string firebaseUid, CancellationToken ct) =>
         await _users.GetByFirebaseUidAsync(firebaseUid, ct)
             ?? throw new NotFoundException("User not initialized.");
 
-    private async Task EnsureParticipantOrThrow(Guid userId, Guid streakId, CancellationToken ct)
+    private async Task EnsureActiveParticipantOrThrow(Guid userId, Guid streakId, CancellationToken ct)
     {
-        if (!await _participants.ExistsAsync(userId, streakId, ct))
+        if (!await _participants.IsActiveAsync(userId, streakId, ct))
             throw new ForbiddenException("You are not a participant of this streak.");
     }
 
@@ -159,11 +224,12 @@ public class StreakService : IStreakService
             ?? throw new NotFoundException("Streak not found.");
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var userIds = streak.Participants.Select(p => p.UserId).ToList();
+        var active = streak.Participants.Where(p => p.IsActive).ToList();
+        var userIds = active.Select(p => p.UserId).ToList();
         var datesByUser = await _checkIns.GetDatesByUsersAsync(userIds, streak.Id, ct);
         var protectedByUser = await _protections.GetUsedDatesByUsersAsync(userIds, streak.Id, ct);
 
-        var participants = streak.Participants
+        var participants = active
             .OrderBy(p => p.JoinedAt)
             .Select(p =>
             {
@@ -180,19 +246,16 @@ public class StreakService : IStreakService
 
         var me = participants.First(x => x.UserId == currentUserId);
 
+        // Compute debt for the current user
+        var myParticipant = active.First(p => p.UserId == currentUserId);
         var myDates = datesByUser.TryGetValue(currentUserId, out var md) ? md : Array.Empty<DateOnly>();
         var myProts = protectedByUser.TryGetValue(currentUserId, out var mp) ? mp : Array.Empty<DateOnly>();
-        var combined = new HashSet<DateOnly>(myDates);
-        combined.UnionWith(myProts);
-        var canRestore = !combined.Contains(today.AddDays(-1)) && combined.Contains(today.AddDays(-2));
-
-        var pending = await _protections.GetPendingAsync(currentUserId, streak.Id, ct);
-        var pendingDto = pending is null
-            ? null
-            : new ProtectionDto(pending.Id, pending.StreakId, pending.Status.ToString(),
-                pending.PointsCost, pending.ScheduledAt, pending.AppliedToDate);
+        var missedDays = ComputeMissedDayCount(myDates, myProts, myParticipant.JoinedAt, today);
+        var unit = _options.MissedDayRecoveryCost;
+        var totalCost = unit * missedDays;
 
         var me2 = await _users.GetByIdAsync(currentUserId, ct);
+        var balance = me2?.PointsBalance ?? 0;
 
         return new StreakDetailDto(
             streak.Id,
@@ -204,12 +267,30 @@ public class StreakService : IStreakService
             streak.CreatedBy,
             me.CurrentCount,
             me.CheckedInToday,
-            me2?.PointsBalance ?? 0,
-            pendingDto,
-            canRestore,
-            _options.ProtectionCost,
+            balance,
+            missedDays,
+            unit,
+            totalCost,
+            balance >= totalCost,
             streak.CheckInType.ToString(),
             streak.CheckInButtonLabel,
+            streak.IsPublic,
             participants);
+    }
+
+    private static int ComputeMissedDayCount(IReadOnlyList<DateOnly> checkIns, IReadOnlyList<DateOnly> protectedDates, DateTime joinedAt, DateOnly today)
+    {
+        var yesterday = today.AddDays(-1);
+        var joinedDate = DateOnly.FromDateTime(joinedAt);
+        var covered = new HashSet<DateOnly>(checkIns);
+        covered.UnionWith(protectedDates);
+        var lastCovered = covered.Count == 0 ? joinedDate : covered.Max();
+        var anchor = joinedDate > lastCovered ? joinedDate : lastCovered;
+        if (anchor >= yesterday) return 0;
+
+        var count = 0;
+        for (var d = anchor.AddDays(1); d <= yesterday; d = d.AddDays(1))
+            if (!covered.Contains(d)) count++;
+        return count;
     }
 }

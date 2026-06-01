@@ -9,5 +9,7 @@ public enum PointsTransactionReason
     Refund = 4,
     ReactionGiven = 5,
     ReactionReceivedLike = 6,
-    ReactionReceivedDislike = 7
+    ReactionReceivedDislike = 7,
+    MissedDayRecovery = 8,
+    Purchase = 9
 }

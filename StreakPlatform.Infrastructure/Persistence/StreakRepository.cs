@@ -33,4 +33,27 @@ public class StreakRepository : IStreakRepository
 
     public async Task AddAsync(Streak streak, CancellationToken ct = default) =>
         await _db.Streaks.AddAsync(streak, ct);
+
+    public async Task<IReadOnlyList<Streak>> GetPublicForDiscoveryAsync(
+        Guid currentUserId, int take, int skip, string? search, CancellationToken ct = default)
+    {
+        var q = _db.Streaks
+            .Include(s => s.Participants)
+            .Include(s => s.Creator)
+            .Where(s => s.IsPublic
+                        && !s.Participants.Any(p => p.UserId == currentUserId));
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = $"%{search.Trim()}%";
+            q = q.Where(s => EF.Functions.Like(s.Name, pattern));
+        }
+
+        return await q
+            .OrderByDescending(s => s.Participants.Count)
+            .ThenByDescending(s => s.CreatedAt)
+            .Skip(Math.Max(skip, 0))
+            .Take(Math.Clamp(take, 1, 100))
+            .ToListAsync(ct);
+    }
 }

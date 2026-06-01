@@ -15,4 +15,10 @@ public class CreateStreakRequest
 
     [StringLength(40)]
     public string? CheckInButtonLabel { get; set; }
+
+    /// <summary>
+    /// If true, the streak appears in the public Discover list. Anyone can browse and join it.
+    /// If false (default), the streak is only joinable via invite code/URL.
+    /// </summary>
+    public bool IsPublic { get; set; }
 }

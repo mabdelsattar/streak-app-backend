@@ -140,7 +140,7 @@ public class ReactionService : IReactionService
         if (checkIn.UserId == reactor.Id)
             throw new ForbiddenException("You can't react to your own check-in.");
 
-        if (!await _participants.ExistsAsync(reactor.Id, checkIn.StreakId, ct))
+        if (!await _participants.IsActiveAsync(reactor.Id, checkIn.StreakId, ct))
             throw new ForbiddenException("You are not a participant of this streak.");
 
         var author = await _users.GetByIdAsync(checkIn.UserId, ct)

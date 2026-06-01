@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<StreakProtection> StreakProtections => Set<StreakProtection>();
     public DbSet<PointsTransaction> PointsTransactions => Set<PointsTransaction>();
     public DbSet<CheckInReaction> CheckInReactions => Set<CheckInReaction>();
+    public DbSet<PointsPurchase> PointsPurchases => Set<PointsPurchase>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -36,7 +37,9 @@ public class AppDbContext : DbContext
             e.Property(x => x.InviteCode).IsRequired().HasMaxLength(16);
             e.Property(x => x.CheckInType).HasDefaultValue(CheckInType.Action);
             e.Property(x => x.CheckInButtonLabel).HasMaxLength(40);
+            e.Property(x => x.IsPublic).HasDefaultValue(false);
             e.HasIndex(x => x.InviteCode).IsUnique();
+            e.HasIndex(x => new { x.IsPublic, x.CreatedAt });
             e.HasOne(x => x.Creator)
                 .WithMany(u => u.CreatedStreaks)
                 .HasForeignKey(x => x.CreatedBy)
@@ -47,6 +50,9 @@ public class AppDbContext : DbContext
         {
             e.HasKey(x => x.Id);
             e.HasIndex(x => new { x.UserId, x.StreakId }).IsUnique();
+            e.HasIndex(x => new { x.StreakId, x.IsActive });
+            e.Property(x => x.IsActive).HasDefaultValue(true);
+            e.Property(x => x.InactiveReason).HasMaxLength(40);
             e.HasOne(x => x.User)
                 .WithMany(u => u.Participations)
                 .HasForeignKey(x => x.UserId)
@@ -117,6 +123,20 @@ public class AppDbContext : DbContext
                 .WithMany(u => u.Reactions)
                 .HasForeignKey(x => x.ReactorUserId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<PointsPurchase>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.PackId).IsRequired().HasMaxLength(40);
+            e.Property(x => x.Provider).IsRequired().HasMaxLength(20);
+            e.Property(x => x.ExternalReceiptId).IsRequired().HasMaxLength(100);
+            e.HasIndex(x => new { x.UserId, x.CreatedAt });
+            e.HasIndex(x => x.ExternalReceiptId);
+            e.HasOne(x => x.User)
+                .WithMany(u => u.Purchases)
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

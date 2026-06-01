@@ -36,6 +36,7 @@ public static class DependencyInjection
         services.AddScoped<IProtectionRepository, ProtectionRepository>();
         services.AddScoped<IPointsTransactionRepository, PointsTransactionRepository>();
         services.AddScoped<IReactionRepository, ReactionRepository>();
+        services.AddScoped<IPointsPurchaseRepository, PointsPurchaseRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // Helpers
@@ -56,8 +57,12 @@ public static class DependencyInjection
         services.AddScoped<IStreakService, StreakService>();
         services.AddScoped<ICheckInService, CheckInService>();
         services.AddScoped<IPointsService, PointsService>();
-        services.AddScoped<IStreakProtectionService, StreakProtectionService>();
+        services.AddScoped<IMissedDayRecoveryService, MissedDayRecoveryService>();
         services.AddScoped<IReactionService, ReactionService>();
+
+        // Payments (mock by default; swap IPaymentProvider for Stripe etc. later)
+        services.AddSingleton<IPaymentProvider, MockPaymentProvider>();
+        services.AddScoped<IPaymentService, PaymentService>();
 
         return services;
     }

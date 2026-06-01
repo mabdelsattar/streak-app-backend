@@ -48,7 +48,8 @@ public class CheckInService : ICheckInService
         var streak = await _streaks.GetByIdAsync(streakId, ct)
             ?? throw new NotFoundException("Streak not found.");
 
-        if (!await _participants.ExistsAsync(user.Id, streakId, ct))
+        var participant = await _participants.GetAsync(user.Id, streakId, ct);
+        if (participant is null || !participant.IsActive)
             throw new ForbiddenException("You are not a participant of this streak.");
 
         var note = string.IsNullOrWhiteSpace(req.Note) ? null : req.Note.Trim();
@@ -59,36 +60,17 @@ public class CheckInService : ICheckInService
         ValidateForType(streak.CheckInType, note, mediaUrl, mediaContentType);
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var yesterday = today.AddDays(-1);
-        var dayBefore = today.AddDays(-2);
 
         if (await _checkIns.ExistsAsync(user.Id, streakId, today, ct))
             throw new ConflictException("Already checked in today.");
 
+        // Block if outstanding missed-day debt exists. Frontend must call /pay-debt first.
+        var missedCount = await CountMissedDaysAsync(user.Id, streakId, participant.JoinedAt, ct);
+        if (missedCount > 0)
+            throw new ConflictException($"must_pay_debt_first: You have {missedCount} missed day(s) to settle.");
+
         var existingCheckIns = await _checkIns.GetUserDatesAsync(user.Id, streakId, ct);
         var existingProtected = await _protections.GetUsedDatesAsync(user.Id, streakId, ct);
-        var combined = new HashSet<DateOnly>(existingCheckIns);
-        combined.UnionWith(existingProtected);
-
-        var gapIsYesterday = !combined.Contains(yesterday) && combined.Contains(dayBefore);
-        var protectionConsumed = false;
-
-        if (gapIsYesterday)
-        {
-            var pending = await _protections.GetPendingAsync(user.Id, streakId, ct);
-            if (pending is not null && user.PointsBalance >= _options.ProtectionCost)
-            {
-                pending.Status = ProtectionStatus.Used;
-                pending.AppliedToDate = yesterday;
-                pending.AppliedAt = DateTime.UtcNow;
-
-                await _points.AwardAsync(user.Id, -_options.ProtectionCost,
-                    PointsTransactionReason.ProtectionPurchase, streakId, pending.Id, ct);
-
-                existingProtected = existingProtected.Append(yesterday).ToList();
-                protectionConsumed = true;
-            }
-        }
 
         await _checkIns.AddAsync(new CheckIn
         {
@@ -110,7 +92,7 @@ public class CheckInService : ICheckInService
 
         var dates = existingCheckIns.Append(today);
         var count = StreakCountCalculator.Compute(dates, existingProtected, today);
-        return new CheckInResultDto(streakId, today, count, _options.PointsPerCheckIn, newBalance, protectionConsumed);
+        return new CheckInResultDto(streakId, today, count, _options.PointsPerCheckIn, newBalance, false);
     }
 
     public async Task<TodayStatusDto> GetTodayStatusAsync(string firebaseUid, Guid streakId, CancellationToken ct = default)
@@ -118,7 +100,7 @@ public class CheckInService : ICheckInService
         var user = await _users.GetByFirebaseUidAsync(firebaseUid, ct)
             ?? throw new NotFoundException("User not initialized.");
 
-        if (!await _participants.ExistsAsync(user.Id, streakId, ct))
+        if (!await _participants.IsActiveAsync(user.Id, streakId, ct))
             throw new ForbiddenException("You are not a participant of this streak.");
 
         var streak = await _streaks.GetByIdWithParticipantsAsync(streakId, ct)
@@ -128,6 +110,7 @@ public class CheckInService : ICheckInService
         var checkedInUserIds = (await _checkIns.GetUsersCheckedInOnDateAsync(streakId, today, ct)).ToHashSet();
 
         var roster = streak.Participants
+            .Where(p => p.IsActive)
             .OrderBy(p => p.JoinedAt)
             .Select(p => new TodayParticipantDto(
                 p.UserId,
@@ -143,18 +126,19 @@ public class CheckInService : ICheckInService
         var user = await _users.GetByFirebaseUidAsync(firebaseUid, ct)
             ?? throw new NotFoundException("User not initialized.");
 
-        if (!await _participants.ExistsAsync(user.Id, streakId, ct))
+        if (!await _participants.IsActiveAsync(user.Id, streakId, ct))
             throw new ForbiddenException("You are not a participant of this streak.");
 
         var streak = await _streaks.GetByIdWithParticipantsAsync(streakId, ct)
             ?? throw new NotFoundException("Streak not found.");
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var userIds = streak.Participants.Select(p => p.UserId).ToList();
+        var active = streak.Participants.Where(p => p.IsActive).ToList();
+        var userIds = active.Select(p => p.UserId).ToList();
         var datesByUser = await _checkIns.GetDatesByUsersAsync(userIds, streakId, ct);
         var protectedByUser = await _protections.GetUsedDatesByUsersAsync(userIds, streakId, ct);
 
-        var participants = streak.Participants
+        var participants = active
             .OrderBy(p => p.JoinedAt)
             .Select(p =>
             {
@@ -177,7 +161,7 @@ public class CheckInService : ICheckInService
         var user = await _users.GetByFirebaseUidAsync(firebaseUid, ct)
             ?? throw new NotFoundException("User not initialized.");
 
-        if (!await _participants.ExistsAsync(user.Id, streakId, ct))
+        if (!await _participants.IsActiveAsync(user.Id, streakId, ct))
             throw new ForbiddenException("You are not a participant of this streak.");
 
         var rows = await _checkIns.GetFeedAsync(streakId, Math.Clamp(take, 1, 100), Math.Max(skip, 0), ct);
@@ -208,12 +192,32 @@ public class CheckInService : ICheckInService
         }).ToList();
     }
 
+    private async Task<int> CountMissedDaysAsync(Guid userId, Guid streakId, DateTime joinedAt, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var yesterday = today.AddDays(-1);
+        var joinedDate = DateOnly.FromDateTime(joinedAt);
+
+        var checkInDates = await _checkIns.GetUserDatesAsync(userId, streakId, ct);
+        var protectedDates = await _protections.GetUsedDatesAsync(userId, streakId, ct);
+        var covered = new HashSet<DateOnly>(checkInDates);
+        covered.UnionWith(protectedDates);
+
+        var lastCovered = covered.Count == 0 ? joinedDate : covered.Max();
+        var anchor = joinedDate > lastCovered ? joinedDate : lastCovered;
+        if (anchor >= yesterday) return 0;
+
+        var missed = 0;
+        for (var d = anchor.AddDays(1); d <= yesterday; d = d.AddDays(1))
+            if (!covered.Contains(d)) missed++;
+        return missed;
+    }
+
     private static void ValidateForType(CheckInType type, string? note, string? mediaUrl, string? mediaContentType)
     {
         switch (type)
         {
             case CheckInType.Action:
-                // Anything goes — extra fields just stored if present.
                 return;
             case CheckInType.Text:
                 if (string.IsNullOrWhiteSpace(note))

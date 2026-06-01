@@ -55,8 +55,10 @@ public class LocalMediaStorage : IMediaStorage
         ValidateKindAgainstContentType(kind, contentType);
 
         var maxBytes = MaxSizeForKind(kind);
+        // Return a path-only URL. The frontend prepends its own apiBaseUrl so the
+        // upload always targets the API (not the static web app host).
         return Task.FromResult(new UploadTicketDto(
-            UploadUrl: $"{_options.PublicBaseUrl.TrimEnd('/')}/api/media/upload",
+            UploadUrl: "/api/media/upload",
             UploadMethod: "POST_MULTIPART",
             UploadFieldName: "file",
             PublicUrl: null,                        // server returns the URL after upload

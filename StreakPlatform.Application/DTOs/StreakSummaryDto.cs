@@ -7,6 +7,6 @@ public record StreakSummaryDto(
     int CurrentCount,
     bool CheckedInToday,
     int ParticipantCount,
-    bool HasActiveProtection,
     string CheckInType,
-    string? CheckInButtonLabel);
+    string? CheckInButtonLabel,
+    bool IsPublic);

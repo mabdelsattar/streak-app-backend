@@ -9,6 +9,7 @@ public class Streak
     public string InviteCode { get; set; } = null!;
     public CheckInType CheckInType { get; set; }
     public string? CheckInButtonLabel { get; set; }
+    public bool IsPublic { get; set; }
     public DateTime CreatedAt { get; set; }
 
     public User Creator { get; set; } = null!;
