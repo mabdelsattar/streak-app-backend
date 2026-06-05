@@ -52,6 +52,18 @@ public class StreakService : IStreakService
         var now = DateTime.UtcNow;
         var label = string.IsNullOrWhiteSpace(req.CheckInButtonLabel) ? null : req.CheckInButtonLabel.Trim();
 
+        // Deduct creation cost based on check-in type (0 for Action, up to 30 for Video)
+        var creationCost = _options.GetCreationCost(req.CheckInType);
+        if (creationCost > 0)
+        {
+            if (user.PointsBalance < creationCost)
+                throw new ConflictException(
+                    $"insufficient_points: Creating a {req.CheckInType} streak costs {creationCost} pts. Your balance is {user.PointsBalance}.");
+
+            await _points.AwardAsync(user.Id, -creationCost,
+                PointsTransactionReason.StreakCreation, null, null, ct);
+        }
+
         var streak = new Streak
         {
             Id = Guid.NewGuid(),

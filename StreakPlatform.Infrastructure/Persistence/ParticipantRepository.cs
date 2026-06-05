@@ -25,4 +25,9 @@ public class ParticipantRepository : IParticipantRepository
             .Where(p => p.StreakId == streakId && p.IsActive)
             .OrderBy(p => p.JoinedAt)
             .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<Participant>> GetActiveByUserIdAsync(Guid userId, CancellationToken ct = default) =>
+        await _db.Participants
+            .Where(p => p.UserId == userId && p.IsActive)
+            .ToListAsync(ct);
 }

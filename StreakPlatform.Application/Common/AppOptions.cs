@@ -1,3 +1,5 @@
+using StreakPlatform.Domain.Entities;
+
 namespace StreakPlatform.Application.Common;
 
 public class AppOptions
@@ -13,6 +15,23 @@ public class AppOptions
 
     // Forced missed-day recovery (replaces Protection + Restore)
     public int MissedDayRecoveryCost { get; set; } = 10;    // per missed day
+
+    // One-time cost to create a streak, varies by check-in type
+    public int StreakCreationCostAction { get; set; } = 0;
+    public int StreakCreationCostText   { get; set; } = 10;
+    public int StreakCreationCostImage  { get; set; } = 20;
+    public int StreakCreationCostVoice  { get; set; } = 20;
+    public int StreakCreationCostVideo  { get; set; } = 30;
+
+    public int GetCreationCost(CheckInType type) => type switch
+    {
+        CheckInType.Action => StreakCreationCostAction,
+        CheckInType.Text   => StreakCreationCostText,
+        CheckInType.Image  => StreakCreationCostImage,
+        CheckInType.Voice  => StreakCreationCostVoice,
+        CheckInType.Video  => StreakCreationCostVideo,
+        _                  => 0
+    };
 
     // Reactions
     public int ReactionLikePoints { get; set; } = 5;

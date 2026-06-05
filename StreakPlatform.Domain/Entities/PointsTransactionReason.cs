@@ -11,5 +11,6 @@ public enum PointsTransactionReason
     ReactionReceivedLike = 6,
     ReactionReceivedDislike = 7,
     MissedDayRecovery = 8,
-    Purchase = 9
+    Purchase = 9,
+    StreakCreation = 10
 }

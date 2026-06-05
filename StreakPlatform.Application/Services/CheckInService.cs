@@ -64,10 +64,9 @@ public class CheckInService : ICheckInService
         if (await _checkIns.ExistsAsync(user.Id, streakId, today, ct))
             throw new ConflictException("Already checked in today.");
 
-        // Block if outstanding missed-day debt exists. Frontend must call /pay-debt first.
-        var missedCount = await CountMissedDaysAsync(user.Id, streakId, participant.JoinedAt, ct);
-        if (missedCount > 0)
-            throw new ConflictException($"must_pay_debt_first: You have {missedCount} missed day(s) to settle.");
+        // Debt is auto-settled on login. If balance still reached 0 the user must top up before continuing.
+        if (user.PointsBalance <= 0)
+            throw new ConflictException("insufficient_points: Your balance is 0. Buy points to continue participating.");
 
         var existingCheckIns = await _checkIns.GetUserDatesAsync(user.Id, streakId, ct);
         var existingProtected = await _protections.GetUsedDatesAsync(user.Id, streakId, ct);
@@ -190,27 +189,6 @@ public class CheckInService : ICheckInService
                 myReaction,
                 r.CheckIn.UserId == user.Id);
         }).ToList();
-    }
-
-    private async Task<int> CountMissedDaysAsync(Guid userId, Guid streakId, DateTime joinedAt, CancellationToken ct)
-    {
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
-        var yesterday = today.AddDays(-1);
-        var joinedDate = DateOnly.FromDateTime(joinedAt);
-
-        var checkInDates = await _checkIns.GetUserDatesAsync(userId, streakId, ct);
-        var protectedDates = await _protections.GetUsedDatesAsync(userId, streakId, ct);
-        var covered = new HashSet<DateOnly>(checkInDates);
-        covered.UnionWith(protectedDates);
-
-        var lastCovered = covered.Count == 0 ? joinedDate : covered.Max();
-        var anchor = joinedDate > lastCovered ? joinedDate : lastCovered;
-        if (anchor >= yesterday) return 0;
-
-        var missed = 0;
-        for (var d = anchor.AddDays(1); d <= yesterday; d = d.AddDays(1))
-            if (!covered.Contains(d)) missed++;
-        return missed;
     }
 
     private static void ValidateForType(CheckInType type, string? note, string? mediaUrl, string? mediaContentType)

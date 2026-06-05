@@ -84,6 +84,57 @@ public class MissedDayRecoveryService : IMissedDayRecoveryService
         return new PayDebtResultDto(streakId, missed.Count, total, newBalance, missed);
     }
 
+    public async Task<(int NewBalance, bool NeedsToBuyPoints)> DeductOnLoginAsync(Guid userId, CancellationToken ct = default)
+    {
+        var user = await _users.GetByIdAsync(userId, ct)
+            ?? throw new NotFoundException("User not found.");
+
+        var activeParticipants = await _participants.GetActiveByUserIdAsync(userId, ct);
+        if (activeParticipants.Count == 0)
+            return (user.PointsBalance, user.PointsBalance <= 0);
+
+        var now = DateTime.UtcNow;
+        var allMissed = new List<(Guid StreakId, DateOnly Date)>();
+
+        foreach (var p in activeParticipants)
+        {
+            var missed = await ComputeMissedDatesAsync(userId, p.StreakId, p.JoinedAt, ct);
+            foreach (var d in missed)
+                allMissed.Add((p.StreakId, d));
+        }
+
+        if (allMissed.Count == 0)
+            return (user.PointsBalance, user.PointsBalance <= 0);
+
+        var unit = _options.MissedDayRecoveryCost;
+        var totalDebt = unit * allMissed.Count;
+        var insufficient = user.PointsBalance < totalDebt;
+
+        // Create one StreakProtection row per missed day (marks them as settled for streak-count purposes)
+        foreach (var (streakId, date) in allMissed)
+        {
+            await _protections.AddAsync(new StreakProtection
+            {
+                Id = Guid.NewGuid(),
+                UserId = userId,
+                StreakId = streakId,
+                Status = ProtectionStatus.Used,
+                PointsCost = unit,
+                ScheduledAt = now,
+                AppliedToDate = date,
+                AppliedAt = now,
+                CreatedAt = now
+            }, ct);
+        }
+
+        // AwardAsync clamps balance at 0 — deducts what is available
+        var newBalance = await _points.AwardAsync(userId, -totalDebt,
+            PointsTransactionReason.MissedDayRecovery, null, null, ct);
+
+        await _uow.SaveChangesAsync(ct);
+        return (newBalance, insufficient || newBalance <= 0);
+    }
+
     public async Task LeaveAsync(string firebaseUid, Guid streakId, CancellationToken ct = default)
     {
         var user = await _users.GetByFirebaseUidAsync(firebaseUid, ct)

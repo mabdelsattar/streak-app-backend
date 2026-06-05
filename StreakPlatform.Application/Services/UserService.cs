@@ -10,17 +10,20 @@ public class UserService : IUserService
 {
     private readonly IUserRepository _users;
     private readonly IPointsTransactionRepository _txs;
+    private readonly IMissedDayRecoveryService _recovery;
     private readonly IUnitOfWork _uow;
     private readonly AppOptions _options;
 
     public UserService(
         IUserRepository users,
         IPointsTransactionRepository txs,
+        IMissedDayRecoveryService recovery,
         IUnitOfWork uow,
         IOptions<AppOptions> options)
     {
         _users = users;
         _txs = txs;
+        _recovery = recovery;
         _uow = uow;
         _options = options.Value;
     }
@@ -36,7 +39,10 @@ public class UserService : IUserService
                 existing.UpdatedAt = DateTime.UtcNow;
                 await _uow.SaveChangesAsync(ct);
             }
-            return Map(existing);
+
+            // Auto-deduct all missed days across all active streaks on every login
+            var (newBalance, needsToBuyPoints) = await _recovery.DeductOnLoginAsync(existing.Id, ct);
+            return Map(existing, newBalance, needsToBuyPoints);
         }
 
         var now = DateTime.UtcNow;
@@ -66,14 +72,14 @@ public class UserService : IUserService
         }
 
         await _uow.SaveChangesAsync(ct);
-        return Map(user);
+        return Map(user, user.PointsBalance, false);
     }
 
     public async Task<UserProfileDto> GetProfileAsync(string firebaseUid, CancellationToken ct = default)
     {
         var user = await _users.GetByFirebaseUidAsync(firebaseUid, ct)
             ?? throw new NotFoundException("User not initialized. Call /api/auth/initialize first.");
-        return Map(user);
+        return Map(user, user.PointsBalance, user.PointsBalance <= 0);
     }
 
     private static string FallbackDisplayName(string email)
@@ -82,5 +88,6 @@ public class UserService : IUserService
         return at > 0 ? email[..at] : email;
     }
 
-    private static UserProfileDto Map(User u) => new(u.Id, u.Email, u.DisplayName);
+    private static UserProfileDto Map(User u, int balance, bool needsToBuyPoints) =>
+        new(u.Id, u.Email, u.DisplayName, balance, needsToBuyPoints);
 }

@@ -12,4 +12,7 @@ public interface IParticipantRepository
 
     Task AddAsync(Participant participant, CancellationToken ct = default);
     Task<IReadOnlyList<Participant>> GetByStreakIdAsync(Guid streakId, CancellationToken ct = default);
+
+    /// <summary>Returns all active participant rows for a given user (across all streaks).</summary>
+    Task<IReadOnlyList<Participant>> GetActiveByUserIdAsync(Guid userId, CancellationToken ct = default);
 }
