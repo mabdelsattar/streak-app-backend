@@ -41,6 +41,9 @@ public class AppOptions
     public int PublicStreakJoinCost { get; set; } = 0;   // 0 = free; raise later if needed
     public int PublicListDefaultTake { get; set; } = 20;
 
+    // Text content moderation
+    public TextValidationOptions TextValidation { get; set; } = new();
+
     // Payments (mock by default)
     public PaymentsOptions Payments { get; set; } = new();
 
@@ -74,6 +77,13 @@ public class GcsOptions
     public string CredentialsPath { get; set; } = "";
     public int UploadUrlTtlMinutes { get; set; } = 10;
     public string PublicBaseUrl { get; set; } = "https://storage.googleapis.com";
+}
+
+public class TextValidationOptions
+{
+    public string Provider { get; set; } = "Mock";        // "Mock" | "Gemini"
+    public string GeminiApiKey { get; set; } = "";
+    public string GeminiModel { get; set; } = "gemini-2.0-flash";
 }
 
 public class PaymentsOptions

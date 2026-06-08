@@ -5,6 +5,7 @@ using StreakPlatform.Application.Common;
 using StreakPlatform.Application.Interfaces;
 using StreakPlatform.Application.Services;
 using StreakPlatform.Infrastructure.Persistence;
+using StreakPlatform.Infrastructure.Services;
 using StreakPlatform.Infrastructure.Storage;
 
 namespace StreakPlatform.Infrastructure;
@@ -63,6 +64,18 @@ public static class DependencyInjection
         // Payments (mock by default; swap IPaymentProvider for Stripe etc. later)
         services.AddSingleton<IPaymentProvider, MockPaymentProvider>();
         services.AddScoped<IPaymentService, PaymentService>();
+
+        // Text moderation — Gemini or Mock based on config
+        var textProvider = config["App:TextValidation:Provider"] ?? "Mock";
+        if (textProvider.Equals("Gemini", StringComparison.OrdinalIgnoreCase))
+        {
+            services.AddHttpClient<GeminiTextModerationService>();
+            services.AddScoped<ITextModerationService, GeminiTextModerationService>();
+        }
+        else
+        {
+            services.AddScoped<ITextModerationService, MockTextModerationService>();
+        }
 
         return services;
     }

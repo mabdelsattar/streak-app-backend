@@ -19,6 +19,7 @@ public class PointsController : ControllerBase
 
     [HttpGet("points")]
     public async Task<IActionResult> Balance(CancellationToken ct) =>
+        
         Ok(await _points.GetBalanceAsync(_current.FirebaseUid, ct));
 
     [HttpGet("points/transactions")]

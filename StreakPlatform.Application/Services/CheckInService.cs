@@ -15,6 +15,7 @@ public class CheckInService : ICheckInService
     private readonly IProtectionRepository _protections;
     private readonly IReactionRepository _reactions;
     private readonly IPointsService _points;
+    private readonly ITextModerationService _moderation;
     private readonly IUnitOfWork _uow;
     private readonly AppOptions _options;
 
@@ -26,6 +27,7 @@ public class CheckInService : ICheckInService
         IProtectionRepository protections,
         IReactionRepository reactions,
         IPointsService points,
+        ITextModerationService moderation,
         IUnitOfWork uow,
         IOptions<AppOptions> options)
     {
@@ -36,6 +38,7 @@ public class CheckInService : ICheckInService
         _protections = protections;
         _reactions = reactions;
         _points = points;
+        _moderation = moderation;
         _uow = uow;
         _options = options.Value;
     }
@@ -58,6 +61,14 @@ public class CheckInService : ICheckInService
         var duration = req.MediaDurationSeconds;
 
         ValidateForType(streak.CheckInType, note, mediaUrl, mediaContentType);
+
+        // AI content moderation — only for Text check-ins that have a note
+        if (streak.CheckInType == CheckInType.Text && !string.IsNullOrWhiteSpace(note))
+        {
+            var modResult = await _moderation.ModerateAsync(note, ct);
+            if (!modResult.IsValid)
+                throw new ValidationException(modResult.Reason ?? "Your check-in note was flagged as inappropriate. Please revise and try again.");
+        }
 
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
